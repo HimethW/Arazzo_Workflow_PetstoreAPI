@@ -20,5 +20,5 @@ async def run_upsert_workflow(id: int, name: str) -> str:  #here it was pet_id a
         return f"Workflow Error: {str(e)}"
 
 if __name__ == "__main__":
-    # Run as http on port 8001. if streamable-http was used then host and port arguments cannot be passed
+    # Run as http on port 8000. if streamable-http was used then host and port arguments cannot be passed
     mcp.run(transport="http",host="127.0.0.1", port=8000)
