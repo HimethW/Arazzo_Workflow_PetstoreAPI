@@ -1,0 +1,67 @@
+arazzo: 1.0.1 #the failure action is not triggered
+info:
+  title: Pet Upsert Workflow
+  version: 1.0.1
+  description: Workflow to check if a pet exists; updates if found (200), creates if missing (404).
+
+sourceDescriptions:
+  - name: petApi
+    url: ./openapi.yaml
+    type: openapi
+
+workflows:
+  - workflowId: ensurePetExists
+    summary: Orchestrated logic to ensure a pet record is present and updated.
+    inputs:
+      type: object
+      properties:
+        petId: 
+          type: integer
+          description: The unique ID of the pet.
+        newName: 
+          type: string
+          description: The name to set for the pet.
+
+    steps:
+      - stepId: checkStep
+        description: Check if the pet already exists in the store.
+        operationId: getPetById
+        parameters:
+          - name: petId
+            in: path
+            value: $inputs.petId
+        successActions:
+          - condition: $statusCode == 200
+            stepId: updateStep # If found, jump to update logic.
+        onFailure:
+          - name: handleMissingPet
+            condition: $statusCode == 404
+            type: goto
+            stepId: createStep # If not found, jump to creation logic.
+
+      - stepId: createStep
+        description: Add a new pet since it was not found.
+        operationId: addPet
+        requestBody:
+          payload:
+            id: $inputs.petId
+            name: $inputs.newName
+            photoUrls: ["https://example.com/pet.jpg"]
+            status: available
+        successActions:
+          - condition: $statusCode == 200
+            terminate: true
+
+      - stepId: updateStep
+        description: Update the existing pet's name.
+        operationId: updatePetWithForm
+        parameters:
+          - name: petId
+            in: path
+            value: $inputs.petId
+          - name: name
+            in: query
+            value: $inputs.newName
+        successActions:
+          - condition: $statusCode == 200
+            terminate: true

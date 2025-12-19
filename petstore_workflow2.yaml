@@ -1,0 +1,78 @@
+arazzo: 1.0.1 #all is working
+info:
+  title: Scalable Pet Upsert Workflow
+  version: 1.0.2
+  description: A resilient workflow using multiple criteria for state branching.
+
+sourceDescriptions:
+  - name: petApi    #a name given to the source document that is being used
+    url: ./openapi.yaml
+    type: openapi
+  #- name: somename     #can use another source document like this
+
+workflows:
+  - workflowId: ensurePetExists             #to uniquely identify this workflow
+    summary: Orchestrated logic to ensure a pet record is present and updated.
+    inputs:
+      type: object
+      properties:
+        petId: { type: integer }      #the inputs are taken and assiged to these variables for future steps
+        newName: { type: string }
+
+    steps:              #this is where the steps of the workflow is defined
+      - stepId: checkStep                             #each step is uniquely identified by a step id
+        description: Check if the pet exists and route to the correct operation.          
+        operationId: getPetById             #the operation is defined by the operation id. it is givne in the openapi.yaml file 
+        parameters:
+          - name: petId                   #call thee getPetByID operation in the openapi.yaml and use the inputs.petID as the petID parameter of the api and it is included on the path of the URI
+            in: path
+            value: $inputs.petId
+        
+        # 1. Define all "Expected" status codes as success criteria
+        successCriteria:
+          - condition: $statusCode == 200
+          - condition: $statusCode == 404
+        
+        # 2. Branch logically based on the response
+        onSuccess:
+          - name: petFoundRouteToUpdate
+            condition: $statusCode == 200
+            type: goto
+            stepId: updateStep                #if the status code is 200 then go to the step with the stepID of updateStep
+          - name: petMissingRouteToCreate
+            condition: $statusCode == 404
+            type: goto
+            stepId: createStep
+
+        # 3. Handle true technical failures (e.g., 500 Server Error)
+        onFailure:
+          - name: retryOnServerError
+            condition: $statusCode >= 500
+            type: retry
+            retryAfter: 5
+
+      - stepId: createStep              #in a similar way the other steps are also defined
+        description: Create a new pet entry.
+        operationId: addPet
+        requestBody:
+          payload:
+            id: $inputs.petId
+            name: $inputs.newName
+            photoUrls: ["https://example.com/pet.jpg"]
+        successActions:
+          - name: terminateAfterCreation
+            terminate: true
+
+      - stepId: updateStep
+        description: Update the existing pet's details.
+        operationId: updatePetWithForm
+        parameters:
+          - name: petId
+            in: path
+            value: $inputs.petId
+          - name: name
+            in: query
+            value: $inputs.newName
+        successActions:
+          - name: terminateAfterUpdate
+            terminate: true
