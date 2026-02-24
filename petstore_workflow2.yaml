@@ -1,4 +1,4 @@
-arazzo: 1.0.1 #all is working
+arazzo: 1.0.1 #not working due to auth
 info:
   title: Scalable Pet Upsert Workflow
   version: 1.0.2

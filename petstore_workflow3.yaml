@@ -1,0 +1,79 @@
+arazzo: 1.0.1 #all is working now
+info:
+  title: Pet Upsert Workflow (V2)
+  version: 1.0.0
+  description: Workflow targeting Petstore V2. Takes an id and name - renames the pet if it exists, creates it if not.
+
+sourceDescriptions:
+  - name: petApi
+    url: ./openapi_v2.yaml
+    type: openapi
+
+workflows:
+  - workflowId: ensurePetExists
+    summary: Check if a pet exists by ID; update its name if found, create it if not.
+    inputs:
+      type: object
+      properties:
+        petId: { type: integer }
+        newName: { type: string }
+
+    steps:
+      - stepId: checkStep
+        description: Check if the pet exists and route accordingly.
+        operationId: getPetById
+        parameters:
+          - name: petId
+            in: path
+            value: $inputs.petId
+
+        # Both 200 and 404 are expected/valid responses - treat both as success
+        successCriteria:
+          - condition: $statusCode == 200
+          - condition: $statusCode == 404
+
+        # Branch based on which status code was returned
+        onSuccess:
+          - name: petFoundRouteToUpdate
+            condition: $statusCode == 200
+            type: goto
+            stepId: updateStep
+          - name: petMissingRouteToCreate
+            condition: $statusCode == 404
+            type: goto
+            stepId: createStep
+
+        # Retry on true server errors
+        onFailure:
+          - name: retryOnServerError
+            condition: $statusCode >= 500
+            type: retry
+            retryAfter: 5
+
+      - stepId: createStep
+        description: Pet not found - create it with the given id and name.
+        operationId: addPet
+        requestBody:
+          contentType: application/json
+          payload:
+            id: $inputs.petId
+            name: $inputs.newName
+            photoUrls: ["https://example.com/pet.jpg"]
+            status: available
+        successActions:
+          - name: terminateAfterCreation
+            terminate: true
+
+      - stepId: updateStep
+        description: Pet found - rename it using a full PUT update.
+        operationId: updatePet
+        requestBody:
+          contentType: application/json
+          payload:
+            id: $inputs.petId
+            name: $inputs.newName
+            photoUrls: ["https://example.com/pet.jpg"]
+            status: available
+        successActions:
+          - name: terminateAfterUpdate
+            terminate: true

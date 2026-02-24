@@ -5,7 +5,7 @@ from arazzo_runner import ArazzoRunner
 mcp = FastMCP("Petstore-Workflow", stateless_http=True)
 
 # Need to ensure petstore_workflow.yaml and openapi.yaml are in this directory or else need to provide the path
-runner = ArazzoRunner.from_arazzo_path("./petstore_workflow2.yaml")
+runner = ArazzoRunner.from_arazzo_path("./petstore_workflow3.yaml")
 
 @mcp.tool()
 async def run_upsert_workflow(id: int, name: str) -> str:  #here it was pet_id and new_name earlier
