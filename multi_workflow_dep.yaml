@@ -1,0 +1,145 @@
+arazzo: 1.0.1
+info:
+  title: Dependent Pet Workflows
+  version: 1.0.0
+  description: >
+    Three workflows with inter-workflow dependencies.
+    createAndVerifyPet calls lookupPet to verify creation.
+    ensurePetUpdated calls createAndVerifyPet when the pet is missing.
+
+sourceDescriptions:
+  - name: petApi
+    url: ./openapi_v2.yaml
+    type: openapi
+
+workflows:
+  # ── Workflow 1 (base): Look up a pet ──────────────────────────
+  - workflowId: lookupPet
+    summary: Look up a pet by its ID (base workflow, called by others).
+    inputs:
+      type: object
+      properties:
+        petId: { type: integer }
+    outputs:
+      petData: $steps.fetchPet.outputs.pet
+
+    steps:
+      - stepId: fetchPet
+        description: Fetch the pet record by ID.
+        operationId: getPetById
+        parameters:
+          - name: petId
+            in: path
+            value: $inputs.petId
+        successCriteria:
+          - condition: $statusCode == 200
+        outputs:
+          pet: $response.body
+
+  # ── Workflow 2: Create pet → calls lookupPet to verify ────────
+  - workflowId: createAndVerifyPet
+    summary: Create a new pet, then call the lookupPet workflow to verify it exists.
+    inputs:
+      type: object
+      properties:
+        petId: { type: integer }
+        petName: { type: string }
+    outputs:
+      petInfo: $steps.verifyViaLookup.outputs.petResult
+
+    steps:
+      - stepId: addStep
+        description: Add the new pet to the store.
+        operationId: addPet
+        requestBody:
+          contentType: application/json
+          payload:
+            id: $inputs.petId
+            name: $inputs.petName
+            photoUrls: ["https://example.com/pet.jpg"]
+            status: available
+        successCriteria:
+          - condition: $statusCode == 200
+
+      - stepId: verifyViaLookup
+        description: Verify the pet was created by calling the lookupPet workflow.
+        workflowId: lookupPet
+        parameters:
+          - name: petId
+            value: $inputs.petId
+        successCriteria:
+          - condition: $statusCode == 200
+        outputs:
+          petResult: $workflow.outputs.petData
+
+  # ── Workflow 3: Ensure pet is updated → calls createAndVerifyPet if missing
+  - workflowId: ensurePetUpdated
+    summary: >
+      Update a pet's name. If the pet does not exist (404),
+      create it first via createAndVerifyPet, then update.
+    inputs:
+      type: object
+      properties:
+        petId: { type: integer }
+        newName: { type: string }
+    outputs:
+      finalPetDetails: $steps.updateStep.outputs.pet
+
+    steps:
+      - stepId: checkStep
+        description: Check if the pet exists; route to create or update.
+        operationId: getPetById
+        parameters:
+          - name: petId
+            in: path
+            value: $inputs.petId
+
+        # Both 200 and 404 are expected responses — treat both as success
+        successCriteria:
+          - condition: $statusCode == 200 || $statusCode == 404
+
+        # Branch based on which code was returned
+        onSuccess:
+          - name: petFoundGoUpdate
+            type: goto
+            stepId: updateStep
+            criteria:
+              - condition: $statusCode == 200
+          - name: petMissingGoCreate
+            type: goto
+            stepId: createStep
+            criteria:
+              - condition: $statusCode == 404
+
+        # Handle true server errors
+        #onFailure:
+        #  - name: retryOnServerError
+        #    condition: $statusCode >= 500
+        #    type: retry
+        #    retryAfter: 5
+
+      - stepId: createStep
+        description: Pet not found — create it via the createAndVerifyPet workflow.
+        workflowId: createAndVerifyPet
+        parameters:
+          - name: petId
+            value: $inputs.petId
+          - name: petName
+            value: $inputs.newName
+        successCriteria:
+          - condition: $statusCode == 200
+
+      - stepId: updateStep
+        description: Update the pet with the new name.
+        operationId: updatePet
+        requestBody:
+          contentType: application/json
+          payload:
+            id: $inputs.petId
+            name: $inputs.newName
+            photoUrls: ["https://example.com/pet.jpg"]
+            status: available
+        successCriteria:
+          - condition: $statusCode == 200
+        outputs:
+          pet: $response.body
